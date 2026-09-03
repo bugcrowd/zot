@@ -1,0 +1,46 @@
+on:
+  push:
+    branches:
+      - "zot-ondemand-revalidate-ttl"
+  workflow_dispatch: {}
+name: Build bugcrowd fork image
+
+# Minimal multi-arch build for our internal fork, kept separate from upstream's release
+# pipeline (publish.yaml) which is stacker-based, requires a GitHub release, and pushes to
+# project-zot/helm-charts. We just need an image at ghcr.io/bugcrowd/zot for the
+# zot-ondemand-revalidate-ttl branch, built via buildx from the existing build/Dockerfile.
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build and push multi-arch image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: build/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/bugcrowd/zot:ondemand-revalidate-ttl
+            ghcr.io/bugcrowd/zot:${{ github.sha }}
