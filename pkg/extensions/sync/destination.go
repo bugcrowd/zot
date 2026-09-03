@@ -89,6 +89,15 @@ func (registry *DestinationRegistry) CanSkipImage(repo, tag string, digest godig
 	return true, nil
 }
 
+// LocalImageExists reports, from local storage only, whether repo:tag is already present.
+func (registry *DestinationRegistry) LocalImageExists(repo, tag string) bool {
+	imageStore := registry.storeController.GetImageStore(repo)
+
+	_, _, _, err := imageStore.GetImageManifest(repo, tag)
+
+	return err == nil
+}
+
 func (registry *DestinationRegistry) GetImageReference(repo, reference string) (ref.Ref, error) {
 	return registry.tempStorage.GetImageReference(repo, reference)
 }

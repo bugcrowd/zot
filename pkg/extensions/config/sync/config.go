@@ -69,6 +69,10 @@ type RegistryConfig struct {
 	PreserveDigest         bool           // sync without converting
 	SyncTimeout            time.Duration  // overall HTTP client timeout for all sync operations
 	ResponseHeaderTimeout  time.Duration  `yaml:"-"` // response header timeout; set in root.go
+	// RevalidateAfter, when set, lets an on-demand tag lookup that was already synced within this
+	// window be served from local storage without re-walking the upstream manifest tree. Unset
+	// (nil) preserves the previous behaviour of revalidating with upstream on every request.
+	RevalidateAfter *time.Duration
 }
 
 // OAuth2HelperConfig holds the options used by the "oauth2" credential helper,

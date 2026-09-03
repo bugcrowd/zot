@@ -50,6 +50,12 @@ type BaseService struct {
 	hosts            []config.Host
 	tagsCache        *tagsCache
 
+	// lastRevalidated tracks, per "repo:tag", the last time an on-demand sync fully resolved that
+	// reference against the upstream. Only consulted when config.RevalidateAfter is set. Entries
+	// accumulate for the lifetime of the process (no eviction) - acceptable for the short-lived,
+	// per-node cache instances this was written for, but worth bounding if reused elsewhere.
+	lastRevalidated sync.Map
+
 	clientLock sync.RWMutex
 	log        log.Logger
 }
@@ -639,6 +645,20 @@ func (service *BaseService) syncImage(ctx context.Context, localRepo, remoteRepo
 
 	var remoteDigest, localDigest godigest.Digest
 
+	revalidateKey := localRepo + ":" + tag
+
+	if service.config.RevalidateAfter != nil {
+		if lastVal, ok := service.lastRevalidated.Load(revalidateKey); ok {
+			if last, ok := lastVal.(time.Time); ok && time.Since(last) < *service.config.RevalidateAfter &&
+				service.destination.LocalImageExists(localRepo, tag) {
+				service.log.Debug().Str("repo", localRepo).Str("reference", tag).
+					Msg("skipping on-demand revalidation, local copy is within revalidateAfter window")
+
+				return nil
+			}
+		}
+	}
+
 	remoteImageRef, err := service.remote.GetImageReference(remoteRepo, tag)
 	if err != nil {
 		service.log.Error().Err(err).Str("errortype", common.TypeOf(err)).
@@ -745,6 +765,10 @@ func (service *BaseService) syncImage(ctx context.Context, localRepo, remoteRepo
 	}
 
 	service.log.Info().Str("repo", localRepo).Str("reference", tag).Msg("successfully synced image")
+
+	if service.config.RevalidateAfter != nil {
+		service.lastRevalidated.Store(revalidateKey, time.Now())
+	}
 
 	return nil
 }

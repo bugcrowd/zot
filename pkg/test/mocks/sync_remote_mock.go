@@ -75,6 +75,7 @@ type SyncDestinationMock struct {
 	CanSkipImageFn      func(repo string, tag string, digest digest.Digest) (bool, error)
 	CommitAllFn         func(repo string, imageReference ref.Ref) error
 	CleanupImageFn      func(imageReference ref.Ref, repo string) error
+	LocalImageExistsFn  func(repo string, tag string) bool
 }
 
 // Methods required by sync Destination interface.
@@ -93,6 +94,14 @@ func (dest SyncDestinationMock) CanSkipImage(repo string, tag string, digest dig
 	}
 
 	return false, nil
+}
+
+func (dest SyncDestinationMock) LocalImageExists(repo string, tag string) bool {
+	if dest.LocalImageExistsFn != nil {
+		return dest.LocalImageExistsFn(repo, tag)
+	}
+
+	return false
 }
 
 func (dest SyncDestinationMock) CommitAll(repo string, imageReference ref.Ref) error {

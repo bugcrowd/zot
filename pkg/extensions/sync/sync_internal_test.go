@@ -2448,3 +2448,94 @@ func TestCredentialRefreshOnEverySyncEntryPoint(t *testing.T) {
 		})
 	})
 }
+
+func TestRevalidateAfter(t *testing.T) {
+	newService := func(revalidateAfter *time.Duration, remoteCalls *atomic.Int32, localExists bool) *BaseService {
+		conf := syncconf.RegistryConfig{
+			URLs:            []string{"http://localhost"},
+			RevalidateAfter: revalidateAfter,
+		}
+
+		service, err := New(conf, "", nil, t.TempDir(), storage.StoreController{}, mocks.MetaDBMock{}, log.NewTestLogger())
+		So(err, ShouldBeNil)
+
+		service.remote = &mocks.SyncRemoteMock{
+			GetImageReferenceFn: func(repo string, tag string) (ref.Ref, error) {
+				return ref.New("mock-registry/" + repo + ":" + tag)
+			},
+			GetOCIDigestFn: func(ctx context.Context, repo, tag string) (godigest.Digest, godigest.Digest, bool, error) {
+				remoteCalls.Add(1)
+
+				return godigest.Digest("sha256:abc123"), godigest.Digest("sha256:abc123"), false, nil
+			},
+		}
+		service.destination = &mocks.SyncDestinationMock{
+			GetImageReferenceFn: func(repo string, tag string) (ref.Ref, error) {
+				return ref.New("local/" + repo + ":" + tag)
+			},
+			CanSkipImageFn: func(repo string, tag string, digest godigest.Digest) (bool, error) {
+				return true, nil
+			},
+			LocalImageExistsFn: func(repo string, tag string) bool {
+				return localExists
+			},
+		}
+
+		return service
+	}
+
+	Convey("a second on-demand sync within the RevalidateAfter window skips the upstream check", t, func() {
+		var remoteCalls atomic.Int32
+
+		interval := time.Minute
+		service := newService(&interval, &remoteCalls, true)
+		ctx := context.Background()
+
+		So(service.syncImage(ctx, "localrepo", "remoterepo", "tag1", []string{}, false), ShouldBeNil)
+		So(remoteCalls.Load(), ShouldEqual, 1)
+
+		So(service.syncImage(ctx, "localrepo", "remoterepo", "tag1", []string{}, false), ShouldBeNil)
+		So(remoteCalls.Load(), ShouldEqual, 1)
+	})
+
+	Convey("a sync within the window still revalidates if the local copy is gone", t, func() {
+		var remoteCalls atomic.Int32
+
+		interval := time.Minute
+		service := newService(&interval, &remoteCalls, false)
+		ctx := context.Background()
+
+		So(service.syncImage(ctx, "localrepo", "remoterepo", "tag1", []string{}, false), ShouldBeNil)
+		So(remoteCalls.Load(), ShouldEqual, 1)
+
+		So(service.syncImage(ctx, "localrepo", "remoterepo", "tag1", []string{}, false), ShouldBeNil)
+		So(remoteCalls.Load(), ShouldEqual, 2)
+	})
+
+	Convey("a sync after the RevalidateAfter window has elapsed revalidates again", t, func() {
+		var remoteCalls atomic.Int32
+
+		interval := 10 * time.Millisecond
+		service := newService(&interval, &remoteCalls, true)
+		ctx := context.Background()
+
+		So(service.syncImage(ctx, "localrepo", "remoterepo", "tag1", []string{}, false), ShouldBeNil)
+		So(remoteCalls.Load(), ShouldEqual, 1)
+
+		time.Sleep(20 * time.Millisecond)
+
+		So(service.syncImage(ctx, "localrepo", "remoterepo", "tag1", []string{}, false), ShouldBeNil)
+		So(remoteCalls.Load(), ShouldEqual, 2)
+	})
+
+	Convey("with RevalidateAfter unset, every sync revalidates upstream, preserving previous behaviour", t, func() {
+		var remoteCalls atomic.Int32
+
+		service := newService(nil, &remoteCalls, true)
+		ctx := context.Background()
+
+		So(service.syncImage(ctx, "localrepo", "remoterepo", "tag1", []string{}, false), ShouldBeNil)
+		So(service.syncImage(ctx, "localrepo", "remoterepo", "tag1", []string{}, false), ShouldBeNil)
+		So(remoteCalls.Load(), ShouldEqual, 2)
+	})
+}

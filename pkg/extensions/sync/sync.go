@@ -89,6 +89,8 @@ type Destination interface {
 	Registry
 	// Check if descriptors are already synced
 	CanSkipImage(repo string, tag string, digest godigest.Digest) (bool, error)
+	// LocalImageExists reports, from local storage only, whether repo:tag is already present.
+	LocalImageExists(repo string, tag string) bool
 	// CommitAll moves a synced repo and all its manifests from temporary oci layout to ImageStore
 	CommitAll(repo string, imageReference ref.Ref) error
 	// Removes image reference, used when copy.Image() errors out
